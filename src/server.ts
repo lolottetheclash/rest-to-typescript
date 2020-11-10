@@ -1,9 +1,11 @@
+import 'reflect-metadata';
 import express, { NextFunction, Request, Response } from 'express';
 import mongoose from 'mongoose';
 import asyncHandler from 'express-async-handler';
 import cors from 'cors';
-
 import wilderController from './controllers/wilder';
+import { MongoError, isMongoError } from './errors/MongoError';
+import { InputError, isInputError } from './errors/InputError';
 
 const app = express();
 
@@ -32,21 +34,49 @@ app.get('/', (req, res) => {
 
 app.post('/api/wilders', asyncHandler(wilderController.create));
 app.get('/api/wilders', asyncHandler(wilderController.read));
-app.put('/api/wilders', asyncHandler(wilderController.update));
-app.delete('/api/wilders', asyncHandler(wilderController.delete));
+app.put('/api/wilders/:id', asyncHandler(wilderController.update));
+app.delete('/api/wilders/:id', asyncHandler(wilderController.delete));
 
 app.get('*', (req, res) => {
   res.status(404);
   res.send({ success: false, message: 'Wrong adress' });
 });
 
-// eslint-disable-next-line @typescript-eslint/no-unused-vars, @typescript-eslint/no-explicit-any
-app.use((error: any, req: Request, res: Response, next: NextFunction) => {
-  if (error.name === 'MongoError' && error.code === 11000) {
-    res.status(400);
-    res.json({ success: false, message: 'The name is already used' });
+app.use(
+  (
+    error: Error,
+    req: Request,
+    res: Response,
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    next: NextFunction
+  ) => {
+    if (isMongoError(error)) {
+      switch (error.code) {
+        case 11000:
+          res.status(400);
+          res.json({ success: false, message: 'The name is already used' });
+          break;
+        default:
+          res.status(400);
+          res.json({ success: false, message: 'We got a Mongo error....' });
+      }
+    } else if (isInputError(error)) {
+      const errorMessages = error.validationErrors.map(
+        (err) => err.constraints
+      );
+      res.status(400);
+      res.json({ success: false, message: errorMessages });
+      // error.validationErrors.map((err) => console.log(err.constraints));
+      // console.log('lalala INPUT error', error.validationErrors[0].constraints);
+    } else {
+      res.status(400);
+      res.json({
+        success: false,
+        message: error.message,
+      });
+    }
   }
-});
+);
 
 // Start Server
 // eslint-disable-next-line no-console
